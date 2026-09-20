@@ -1,0 +1,21 @@
+﻿services:
+  - type: web
+    name: hardware-inventory-system
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TIDB_HOST
+        sync: false
+      - key: TIDB_PORT
+        value: 4000
+      - key: TIDB_USER
+        sync: false
+      - key: TIDB_PASSWORD
+        sync: false
+      - key: TIDB_DATABASE
+        value: hardware_inventory
