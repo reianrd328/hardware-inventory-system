@@ -351,8 +351,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  updateUser: (id: number, data: { full_name?: string; email?: string; password?: string; is_active?: number }) =>
-    fetchJson<{ message: string }>(`/users/${id}`, {
+  updateUser: (id: number, data: {
+    username?: string;
+    full_name?: string;
+    email?: string;
+    password?: string;
+    role?: string;
+    assigned_warehouse_id?: number | null;
+    assigned_branch_id?: number | null;
+    is_active?: number;
+  }) =>
+    fetchJson<{ message: string; user?: AppUser }>(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),

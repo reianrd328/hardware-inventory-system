@@ -2285,21 +2285,93 @@ router.post('/users', async (req, res) => {
 
 router.put('/users/:id', async (req, res) => {
   try {
-    const { full_name, email, password, is_active } = req.body;
-    const userId = req.params.id;
+    const userId = Number(req.params.id);
+    const { username, full_name, email, password, role, assigned_warehouse_id, assigned_branch_id, is_active } = req.body;
+
+    const existingUser = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if new username is already taken by another account
+    if (username && username.trim().toLowerCase() !== existingUser.username.toLowerCase()) {
+      const taken = await db.prepare('SELECT id FROM users WHERE LOWER(username) = ? AND id != ?').get(username.trim().toLowerCase(), userId);
+      if (taken) {
+        return res.status(400).json({ error: `Username "${username.trim()}" is already taken by another user.` });
+      }
+    }
+
+    const updatedUsername = username ? username.trim().toLowerCase() : existingUser.username;
+    const updatedFullName = full_name !== undefined ? full_name.trim() : existingUser.full_name;
+    const updatedEmail = email !== undefined ? email.trim().toLowerCase() : existingUser.email;
+    const updatedPassword = password && password.trim() !== '' ? password.trim() : existingUser.password;
+    const updatedRole = role !== undefined ? role : existingUser.role;
+
+    // Facility node mapping
+    let updatedWhId = existingUser.assigned_warehouse_id;
+    let updatedBrId = existingUser.assigned_branch_id;
+    if (assigned_warehouse_id !== undefined) {
+      updatedWhId = assigned_warehouse_id ? Number(assigned_warehouse_id) : null;
+    }
+    if (assigned_branch_id !== undefined) {
+      updatedBrId = assigned_branch_id ? Number(assigned_branch_id) : null;
+    }
+    if (updatedRole === 'WAREHOUSE') {
+      updatedBrId = null;
+    } else if (updatedRole === 'BRANCH') {
+      updatedWhId = null;
+    } else if (updatedRole === 'ADMIN' || updatedRole === 'GSD') {
+      updatedWhId = null;
+      updatedBrId = null;
+    }
+
+    const updatedIsActive = is_active !== undefined ? (is_active ? 1 : 0) : existingUser.is_active;
+
+    // Prevent deactivating primary admin account
+    if (existingUser.username.toLowerCase() === 'admin' && updatedIsActive === 0) {
+      return res.status(400).json({ error: 'The primary Administrator account cannot be disabled.' });
+    }
 
     await db.prepare(`
       UPDATE users
       SET 
-        full_name = COALESCE(?, full_name),
-        email = COALESCE(?, email),
-        password = COALESCE(?, password),
-        is_active = COALESCE(?, is_active)
+        username = ?,
+        full_name = ?,
+        email = ?,
+        password = ?,
+        role = ?,
+        assigned_warehouse_id = ?,
+        assigned_branch_id = ?,
+        is_active = ?
       WHERE id = ?
-    `).run(full_name, email, password, is_active, userId);
+    `).run(
+      updatedUsername,
+      updatedFullName,
+      updatedEmail,
+      updatedPassword,
+      updatedRole,
+      updatedWhId,
+      updatedBrId,
+      updatedIsActive,
+      userId
+    );
 
-    res.json({ message: 'User profile updated successfully' });
+    res.json({
+      success: true,
+      message: `User "${updatedFullName}" (@${updatedUsername}) profile and credentials updated successfully.`,
+      user: {
+        id: userId,
+        username: updatedUsername,
+        full_name: updatedFullName,
+        email: updatedEmail,
+        role: updatedRole,
+        assigned_warehouse_id: updatedWhId,
+        assigned_branch_id: updatedBrId,
+        is_active: updatedIsActive
+      }
+    });
   } catch (err) {
+    console.error('Update user error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2347,10 +2419,21 @@ router.post('/users/:id/assign-role', async (req, res) => {
 
 router.delete('/users/:id', async (req, res) => {
   try {
-    const userId = req.params.id;
+    const userId = Number(req.params.id);
+    const existingUser = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (existingUser.username.toLowerCase() === 'admin' && existingUser.is_active === 1) {
+      return res.status(400).json({ error: 'The primary Administrator account cannot be disabled.' });
+    }
+
     // Toggle active status
     await db.prepare('UPDATE users SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?').run(userId);
-    res.json({ message: 'User active status toggled successfully' });
+    const updated = await db.prepare('SELECT is_active FROM users WHERE id = ?').get(userId);
+    const statusText = updated && updated.is_active === 1 ? 'enabled' : 'disabled';
+    res.json({ message: `User account "${existingUser.username}" ${statusText} successfully.`, is_active: updated?.is_active });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
