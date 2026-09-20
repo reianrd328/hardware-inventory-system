@@ -865,14 +865,24 @@ router.post('/catalog', async (req, res) => {
       hardwareId = info.lastInsertRowid;
 
       // 2. Stocking logic: All Active Warehouses vs Specific Warehouse
-      const insertStock = db.prepare(`
-        INSERT INTO warehouse_stocks (warehouse_id, hardware_id, quantity_on_hand, min_threshold, max_threshold, last_restocked_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(warehouse_id, hardware_id) DO UPDATE SET
-          quantity_on_hand = excluded.quantity_on_hand,
-          min_threshold = excluded.min_threshold,
-          max_threshold = excluded.max_threshold
-      `);
+      const insertStockSql = db.isTiDB
+        ? `
+          INSERT INTO warehouse_stocks (warehouse_id, hardware_id, quantity_on_hand, min_threshold, max_threshold, last_restocked_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON DUPLICATE KEY UPDATE
+            quantity_on_hand = VALUES(quantity_on_hand),
+            min_threshold = VALUES(min_threshold),
+            max_threshold = VALUES(max_threshold)
+        `
+        : `
+          INSERT INTO warehouse_stocks (warehouse_id, hardware_id, quantity_on_hand, min_threshold, max_threshold, last_restocked_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(warehouse_id, hardware_id) DO UPDATE SET
+            quantity_on_hand = excluded.quantity_on_hand,
+            min_threshold = excluded.min_threshold,
+            max_threshold = excluded.max_threshold
+        `;
+      const insertStock = db.prepare(insertStockSql);
 
       const insertMovement = db.prepare(`
         INSERT INTO stock_movements (movement_type, warehouse_id, hardware_id, quantity, balance_after, reference_type, reference_id, performed_by, notes)

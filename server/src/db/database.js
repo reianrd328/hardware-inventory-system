@@ -52,6 +52,15 @@ if (isTiDB) {
         keepAliveInitialDelay: 10000
       };
 
+  function normalizeSqlForTiDB(sql) {
+    if (typeof sql === 'string' && sql.includes('ON CONFLICT')) {
+      return sql
+        .replace(/ON\s+CONFLICT\s*\([^)]*\)\s*DO\s+UPDATE\s+SET/gi, 'ON DUPLICATE KEY UPDATE')
+        .replace(/excluded\.(\w+)/gi, 'VALUES($1)');
+    }
+    return sql;
+  }
+
   pool = mysql.createPool(connectionConfig);
 
   db = {
@@ -63,7 +72,7 @@ if (isTiDB) {
       const store = asyncLocalStorage.getStore();
       const executor = store?.conn || pool;
       const normalizedParams = Array.isArray(params) ? params : [params];
-      const [rows] = await executor.query(sql, normalizedParams);
+      const [rows] = await executor.query(normalizeSqlForTiDB(sql), normalizedParams);
       return rows;
     },
 
@@ -72,7 +81,7 @@ if (isTiDB) {
       const store = asyncLocalStorage.getStore();
       const executor = store?.conn || pool;
       const normalizedParams = Array.isArray(params) ? params : [params];
-      const [rows] = await executor.query(sql, normalizedParams);
+      const [rows] = await executor.query(normalizeSqlForTiDB(sql), normalizedParams);
       return rows && rows.length > 0 ? rows[0] : undefined;
     },
 
@@ -81,7 +90,7 @@ if (isTiDB) {
       const store = asyncLocalStorage.getStore();
       const executor = store?.conn || pool;
       const normalizedParams = Array.isArray(params) ? params : [params];
-      const [res] = await executor.query(sql, normalizedParams);
+      const [res] = await executor.query(normalizeSqlForTiDB(sql), normalizedParams);
       return {
         lastInsertRowid: res.insertId,
         changes: res.affectedRows
