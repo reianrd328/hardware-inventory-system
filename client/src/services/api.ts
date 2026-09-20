@@ -172,6 +172,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  deleteCatalogItem: (id: number) =>
+    fetchJson<{ message: string; deletedId: number }>(`/catalog/${id}`, {
+      method: 'DELETE',
+    }),
   customizeStock: (data: {
     warehouse_id: number;
     hardware_id: number;

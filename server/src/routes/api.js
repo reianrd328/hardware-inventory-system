@@ -918,6 +918,50 @@ router.post('/catalog', async (req, res) => {
   }
 });
 
+// Delete hardware item from catalog and all warehouse stock ledgers
+router.delete('/catalog/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const item = await db.prepare('SELECT * FROM hardware_catalog WHERE id = ?').get(id);
+    if (!item) {
+      return res.status(404).json({ error: 'Hardware item not found' });
+    }
+
+    await db.transaction(async () => {
+      // 1. Remove warehouse stocks
+      await db.prepare('DELETE FROM warehouse_stocks WHERE hardware_id = ?').run(id);
+      // 2. Remove stock movements
+      await db.prepare('DELETE FROM stock_movements WHERE hardware_id = ?').run(id);
+      // 3. Remove restock requests
+      await db.prepare('DELETE FROM warehouse_restock_requests WHERE hardware_id = ?').run(id);
+      // 4. Remove request items
+      await db.prepare('DELETE FROM request_items WHERE hardware_id = ?').run(id);
+      // 5. Remove replenishment items
+      await db.prepare('DELETE FROM replenishment_items WHERE hardware_id = ?').run(id);
+      // 6. Remove catalog record
+      await db.prepare('DELETE FROM hardware_catalog WHERE id = ?').run(id);
+
+      // 7. System notification
+      await db.prepare(`
+        INSERT INTO notifications (recipient_role, type, title, message)
+        VALUES ('ADMIN', 'REQUEST_CREATED', ?, ?)
+      `).run(
+        `Hardware Item Deleted: ${item.sku}`,
+        `Hardware item "${item.name}" (${item.sku}) was deleted from the catalog and all warehouse stock ledgers.`
+      );
+    })();
+
+    res.json({
+      success: true,
+      message: `Hardware item "${item.name}" (${item.sku}) deleted successfully.`,
+      deletedId: id
+    });
+  } catch (err) {
+    console.error('Delete catalog item error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Customize hardware in warehouse: add/remove item, adjust par levels, or update stock
 router.post('/stock/customize', async (req, res) => {
   try {
